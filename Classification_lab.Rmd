@@ -174,17 +174,26 @@ median(resid(Ridge_regression))
 $$Lasso Regression=\sum_{i=1}^{n}(y_i - w_0 - \sum_{j=1}^{p}w_jx_{ij})^2 + \lambda\sum_{j=1}^p|w_j|$$
 2. Create and train model 
 ```{r}
+ctrl =  trainControl(method = "boot", 15)
+
+lasso_regression <- train(Temp ~ Wind + Month, data = train_regression,
+                          method = 'lasso', trControl= ctrl) 
 
 ```
 
 ```{r}
+
 ```
 
 Examine the residuals 
-```{r}
-
+```{r}sadf 
 #plot the predicted values vs the observed values
-
+plot_ridge_test_pred <- data.frame(Temp_test_pred = ridge_test_pred, 
+                                   Observed_Temp = test_regression$Temp)
+ggplot(data = plot_ridge_test_pred) +
+  geom_point(aes(x=Observed_Temp, y = Temp_test_pred)) + 
+  ggtitle("True Temp Value vs Predicted Temp Value Ridge Regression") +
+  theme_bw()
 
 #median residual value should be close to zero
 ```
