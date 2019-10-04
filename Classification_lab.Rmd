@@ -181,21 +181,21 @@ lasso_regression <- train(Temp ~ Wind + Month, data = train_regression,
 
 ```
 
+Examine the residuals 
 ```{r}
 
-```
+lasso_test_pred <- predict(lasso_regression, newdata = test_regression)
 
-Examine the residuals 
-```{r}sadf 
 #plot the predicted values vs the observed values
-plot_ridge_test_pred <- data.frame(Temp_test_pred = ridge_test_pred, 
+plot_lasso_test_pred <- data.frame(Temp_test_pred = lasso_test_pred, 
                                    Observed_Temp = test_regression$Temp)
-ggplot(data = plot_ridge_test_pred) +
+ggplot(data = plot_lasso_test_pred) +
   geom_point(aes(x=Observed_Temp, y = Temp_test_pred)) + 
-  ggtitle("True Temp Value vs Predicted Temp Value Ridge Regression") +
+  ggtitle("True Temp Value vs Predicted Temp Value Lasso Regression") +
   theme_bw()
 
 #median residual value should be close to zero
+median(resid(lasso_regression))
 ```
 
 
@@ -422,15 +422,122 @@ ggplot(data = test_classifier_log) +
 #Homework:
 
 1. Use the Breast Cancer dataset from the mlbench package, and predict whether the cancer is malignant or benign using one of the algorithms we learned about in class. Give some rationale as to why you chose this algorithm. Plot ROC curves, and confusion matrices. If you are choosing a hyperparameter like K or lambda, explain how and why you chose it. 
+*The three classification methods that were covered within the lecture were logistic regression, LDA, and KNN. To determine the best algorithm, we act under the general (although not always true) assumption that parametric methods will outperform nonparametric methods given that the assumptions are met. This being the case, KNN will only be chosen if the assumptions of LDA and logistic regression are not met.*
+
+*LDA makes 2 important assumptions that do not hold true for this dataset: the observations for each class are drawn from Gaussian distributions and there is equal variance between classes. We see that for several density plots, there exists non-Gaussian distributions. We also see that the lengths of the boxplots differ suggesting that variance between the classes are not equal. At this point, we could also create scatter plots from the PCA (or create independepnt scatter plots for each pair of varialbes) and draw ellipses around the classes to examine variance visually but it will likely show similar results*
+
+*Having ruled out LDA, we now examine the assumptions for logistic regression. Assuming that the independent variables are independent from each other, we also know that we have are performing a binary classification which satisfies two assumptions. We test for colinearity using VIF scores and the low VIF's suggest that no multicolinearity exists between the independent variables. Lastly, we plot the independent variables against the logits to examine for linearity. Due to the fact that the independent variables are coded as ordinal variables rather than continuous, it is more difficult to visually demonstrate linearity however, it seems that the general trend of the plots suggest a degree of linearity.*
+
+*Although the assumptions of logistic regression are not met 100% (due to the inability to complete vizualize linearity of independent variables), the parameters of the logistic regression are met more than LDA and close enought that it will likely out perform the nonparametric KNN. Therefore, logistic regression is ultimately chosen*
+
+*Given that the final AUC was 0.99, logistic regression seemed to perform very well for the classification of this dataset.*
+
 
 ```{r}
-#libra
-#train
-#test
+#Packages and cleaning of data
+library(mlbench)
+library(InformationValue)
+library(tidyr)
+library(ggplot2)
+library(regclass)
+library(dplyr)
+library(grid)
+library(gridExtra)
 
-##ctrl <- trainControl()
-## <- train(, data = , method = "", trControl = ctrl)
-## predict(, newdata="")
+data(BreastCancer)
+df = BreastCancer
+df = df[,-1]
+df$Class = as.factor(df$Class)
+df = df[complete.cases(df),]
+for (i in c(1:9)){
+  df[,i] = as.numeric(df[,i])
+}
+
+```
+
+```{r}
+# LDA Assumptions
+
+#Checking assumptions for Gaussian distribution among predictor variables for each class
+plot(df$Class)
+
+benign = subset(df, df$Class == "benign")
+malignant = subset(df, df$Class == "malignant")
+
+for (i in c(1:9)){
+  plot(density(benign[,i]))
+}
+
+for (i in c(1:9)){
+  plot(density(malignant[,i]))
+}
+
+#Checking for equal variance among classes
+p = list()
+
+box_variables = colnames(df)
+for (i in box_variables){
+  p[[i]] = ggplot(df, aes_string(x = "Class", y = i, col = "Class", fill = "Class")) +
+    geom_boxplot(alpha = 0.2)+
+    theme(legend.position = "none")+
+    scale_color_manual(values = c("blue", "red"))+
+    scale_fill_manual(values = c("blue", "red"))
+}
+
+do.call(grid.arrange, c(p, nrow = 2))
+```
+
+```{r}
+#Logistic regression Assumptions
+
+#Testing for colinearity
+logmodel = glm(Class ~ ., data = df, family = binomial)
+VIF(logmodel)
+
+#Testing for linearity of independent variables and logit
+probabilities = predict(logmodel, type = "response")
+predictors = colnames(df[,-10])
+
+transformed_df <- df %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+
+ggplot(transformed_df, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  theme_bw() + 
+  facet_wrap(~predictors, scales = "free_y")
+```
+
+```{r}
+library(e1071)
+library(pROC)
+
+numbers = sample(c(1:nrow(df)), size = floor(0.7*nrow(df)))
+#train
+trainset = df[numbers,]
+#test
+testset = df[-numbers, ]
+
+ctrl <- trainControl(method = "repeatedcv", repeats = 15,classProbs = T, savePredictions = T)
+
+logmodel <- train(Class ~ ., data = trainset, method = "glm", family= "binomial", trControl = ctrl)
+
+predictions = predict(logmodel, newdata=testset)
+
+#Confusion matrix
+confusionMatrix(predictions, testset$Class)
+
+#ROC Curve
+plot(x = roc(predictor = logmodel$pred$malignant,
+             response = logmodel$pred$obs)$specificities, 
+     y = roc(predictor = logmodel$pred$malignant, 
+             response = logmodel$pred$obs)$sensitivities,
+     col= "blue", xlim = c(1, 0), type ="l", ylab = "Sensitivity",
+     xlab = "Specificity")
+legend("bottomright", legend = paste("malignant v benign --", 
+                                     roc(predictor = logmodel$pred$malignant,
+                                         response = logmodel$pred$obs)$auc
+, sep = ""), col = c("blue"), fill = c("blue"))
 ```
 
 
